@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout current repository
-        uses: EightDoor/actions/checkout@main
+        uses: actions/checkout@v4
         with:
           ref: dev
           fetch-depth: 0
@@ -68,7 +68,7 @@ jobs:
 
       - name: Create issue on conflict
         if: failure() && steps.version_check.outputs.need_update == 'true'
-        uses: EightDoor/actions/github-script@main
+        uses: actions/github-script@v6
         with:
           script: |
             github.rest.issues.create({
@@ -97,7 +97,7 @@ jobs:
 
       - name: Create success issue
         if: steps.version_check.outputs.need_update == 'true' && success()
-        uses: EightDoor/actions/github-script@main
+        uses: actions/github-script@v6
         with:
           script: |
             github.rest.issues.create({
