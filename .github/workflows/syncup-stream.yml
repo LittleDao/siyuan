@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout current repository
-        uses: actions/checkout@v4
+        uses: EightDoor/actions/checkout@main
         with:
           ref: dev
           fetch-depth: 0
