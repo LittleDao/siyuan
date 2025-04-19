@@ -34,7 +34,7 @@ jobs:
       - name: Fetch upstream repository
         run: |
           git remote add upstream https://github.com/siyuan-note/siyuan.git
-          git fetch upstream master --tags
+          git fetch upstream master --no-tags
 
       - name: Get latest upstream version
         id: upstream_version
