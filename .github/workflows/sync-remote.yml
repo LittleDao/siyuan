@@ -1,0 +1,166 @@
+name: Sync Remote Repository
+
+on:
+  # 手动触发
+  workflow_dispatch:
+  
+  # 定时触发 - 每3天执行一次
+  schedule:
+    - cron: '0 0 */3 * *'  # 每3天的0:00 UTC执行
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # 获取完整的git历史
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+          
+      - name: Configure Git
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install gitpython schedule PyGithub requests
+          
+      - name: Run sync script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          # 修改Python脚本以适应GitHub Actions环境
+          cat > scripts/sync_remote.py << 'EOL'
+          #!/usr/bin/env python3
+          # -*- coding: utf-8 -*-
+          
+          import os
+          import sys
+          import git
+          import logging
+          from datetime import datetime
+          from github import Github
+          
+          # 配置日志
+          logging.basicConfig(
+              level=logging.INFO,
+              format='%(asctime)s - %(levelname)s - %(message)s'
+          )
+          
+          # 配置信息
+          REMOTE_REPO_URL = "https://github.com/siyuan-note/siyuan.git"
+          GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+          REPO_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+          OWNER = os.getenv('REPO_OWNER')
+          REPO = "siyuan"
+          
+          def create_github_issue(title, body, is_success=True):
+              """创建GitHub Issue"""
+              try:
+                  g = Github(GITHUB_TOKEN)
+                  repo = g.get_repo(f"{OWNER}/{REPO}")
+                  labels = ['sync-success'] if is_success else ['sync-failure']
+                  repo.create_issue(title=title, body=body, labels=labels)
+                  logging.info(f"Created issue: {title}")
+              except Exception as e:
+                  logging.error(f"Failed to create issue: {str(e)}")
+          
+          def sync_branches():
+              """同步分支"""
+              try:
+                  repo = git.Repo(REPO_PATH)
+                  
+                  # 添加远程仓库
+                  try:
+                      upstream = repo.remote('upstream')
+                  except ValueError:
+                      upstream = repo.create_remote('upstream', REMOTE_REPO_URL)
+                  
+                  # 获取最新的远程数据
+                  logging.info("Fetching from upstream...")
+                  upstream.fetch(tags=True)
+                  
+                  # 确保在dev分支上
+                  if 'dev' not in repo.heads:
+                      repo.create_head('dev', upstream.refs.master)
+                  repo.heads.dev.checkout()
+                  
+                  # 获取最新的tag
+                  tags = sorted(repo.tags, key=lambda t: t.commit.committed_datetime)
+                  if not tags:
+                      logging.warning("No tags found")
+                      return
+                  
+                  latest_tag = tags[-1]
+                  tag_name = latest_tag.name
+                  logging.info(f"Processing tag: {tag_name}")
+                  
+                  try:
+                      # 合并到dev分支
+                      repo.git.merge(f'upstream/master', '--no-ff')
+                      
+                      # 根据tag类型决定是否需要合并到master
+                      if not tag_name.endswith('-dev'):
+                          if 'master' not in repo.heads:
+                              repo.create_head('master', upstream.refs.master)
+                          repo.heads.master.checkout()
+                          repo.git.merge('dev', '--no-ff')
+                          repo.heads.dev.checkout()
+                      
+                      # 推送更改
+                      repo.git.push('origin', 'dev', '--force')
+                      if not tag_name.endswith('-dev'):
+                          repo.git.push('origin', 'master', '--force')
+                      
+                      create_github_issue(
+                          f"同步成功: {tag_name}",
+                          f"成功同步远程分支 upstream/master 到本地分支\n\n"
+                          f"- 同步时间: {datetime.now()}\n"
+                          f"- 最新Tag: {tag_name}",
+                          True
+                      )
+                      
+                  except git.GitCommandError as e:
+                      create_github_issue(
+                          f"同步失败: {tag_name}",
+                          f"同步过程中发生冲突，需要手动处理\n\n"
+                          f"- 错误信息: {str(e)}\n"
+                          f"- 同步时间: {datetime.now()}\n"
+                          f"- 最新Tag: {tag_name}",
+                          False
+                      )
+                      logging.error(f"Merge conflict occurred: {str(e)}")
+                      sys.exit(1)
+                      
+              except Exception as e:
+                  logging.error(f"Sync failed: {str(e)}")
+                  create_github_issue(
+                      "同步过程发生错误",
+                      f"同步过程中发生未预期的错误\n\n"
+                      f"- 错误信息: {str(e)}\n"
+                      f"- 同步时间: {datetime.now()}",
+                      False
+                  )
+                  sys.exit(1)
+          
+          if __name__ == "__main__":
+              if not GITHUB_TOKEN:
+                  logging.error("请设置GITHUB_TOKEN环境变量")
+                  sys.exit(1)
+              sync_branches()
+          EOL
+          
+          python scripts/sync_remote.py
+
+permissions:
+  contents: write
+  issues: write
