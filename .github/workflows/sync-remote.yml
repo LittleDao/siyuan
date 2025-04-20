@@ -13,32 +13,25 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+      # 直接使用git命令替代actions/checkout
       - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0  # 获取完整的git历史
-          
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
-          
-      - name: Configure Git
         run: |
+          git clone https://github.com/${{ github.repository }}.git .
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
+          git fetch --prune --unshallow --tags
           
-      - name: Install dependencies
+      # 直接使用系统Python替代actions/setup-python
+      - name: Set up Python environment
         run: |
-          python -m pip install --upgrade pip
-          pip install gitpython schedule PyGithub requests
+          python3 -m pip install --upgrade pip
+          pip3 install gitpython schedule PyGithub requests
           
       - name: Run sync script
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_OWNER: ${{ github.repository_owner }}
         run: |
-          # 修改Python脚本以适应GitHub Actions环境
           cat > scripts/sync_remote.py << 'EOL'
           #!/usr/bin/env python3
           # -*- coding: utf-8 -*-
@@ -159,7 +152,7 @@ jobs:
               sync_branches()
           EOL
           
-          python scripts/sync_remote.py
+          python3 scripts/sync_remote.py
 
 permissions:
   contents: write
